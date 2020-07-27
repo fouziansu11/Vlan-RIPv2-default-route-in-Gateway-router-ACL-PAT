@@ -1,0 +1,170 @@
+1.	Configure hostnames of CSE, CE-ME and Gateway router.
+2.	Configure all IP addresses. Enable all interfaces. Configure clock rates (96000), default gateway, etc.
+3.	Configure RIPv2 routing in all the three Routers. 
+4.	Configure default route in Gateway router (using Fa 0/0 interface ) and distribute this default route.
+
+5.	Configure a named ACL (named "CSE-ACL") in appropriate router so that it allows the following connections:
+a.	CSE1 PC can http /Browse to BUET server. 
+b.	CSE2 PC can ftp to DU Server.     
+c.	CSE LAN’s PCs can ping CE networks (192.168.20.0/24)
+d.	CSE LAN’s PCs cannot ping ME networks (192.168.30.0/24)
+e.	All other accesses from CSE LAN are restricted
+6.	Consider 15.1.1.0/28  to be an external network. Configure PAT at Gateway router so that only CSE LAN PCs can access outside network (Internet). 
+Use the pool of four addresses 15.1.1.128/30.  Assign Pool name: BUET-POOL
+Tests:
+1.	Ping CE1 to ME1 (Inter-VLAN routing testing)
+2.	From CSE1, ping CE1 (Expected result: successful)
+3.	From CSE1, ping ME1 (Expected result: failure)
+4.	From CSE2 PC, FTP DU server  (Username: cse, password: cisco)
+5.	From CSE1 PC, browse (http) BUET Server. Show NAT translations.
+
+================================================================================================================================================================
+
+VLAN configuration CE-ME switch
+____________________
+int range fa 0/1
+switchport mode trunk
+switchport trunk native vlan 1
+exit
+
+int range fa 0/2-3
+switchport mode access
+switchport access vlan 20
+exit
+
+
+int range fa 0/11-12
+switchport mode access
+switchport access vlan 30
+exit
+
+int vlan1
+ip add 192.168.40.1 255.255.255.0
+no shutdown
+exit
+
+router CE-ME
+f0/0
+____
+____
+int f 0/0.20
+encapsulation dot1Q 20
+ip add 192.1687.20.1 255.255.255.0
+exit
+
+int f 0/0.30
+encapsulation dot1Q 30
+ip add 192.1687.30.1 255.255.255.0
+exit
+
+
+int f0/0
+no shutdown
+
+#show ip int brief
+
+CE-ME
+int s2/0
+ip add 172.16.0.2 255.255.255.252
+no shutdown
+
+int s3/0
+ip add 172.16.0.1 255.255.255.252
+no shutdown
+
+int f0/0.20
+ip add 192.168.20.1 255.255.255.0
+no shutdown
+
+int f0/0.30
+ip add 192.168.30.1 255.255.255.0
+no shutdown
+
+CSE
+int s2/0
+ip add 172.18.0.1 255.255.255.252
+clockrate 64000
+no shutdown
+
+int s3/0
+ip add 172.16.0.1 255.255.255.252
+clockrate 64000
+no shutdown
+
+
+int f0/0
+ip add 192.168.10.1 255.255.255.0
+no shutdown
+
+Gateway
+int s2/0
+ip add 172.18.0.2 255.255.255.252
+no shutdown
+
+int s3/0
+ip add 172.17.0.2 255.255.255.252
+clockrate 64000
+no shutdown
+
+
+int f0/0
+ip add 15.1.1.1 255.255.255.240
+no shutdown
+
+ripv2 in cse
+____________
+router rip
+version 2
+network 172.16.0.0
+network 172.18.0.0
+network 192.168.10.0
+passive-interface f0/0
+
+ripv2 in CE_ME 
+______________
+router rip
+version 2
+network 172.16.0.0
+network 172.17.0.0
+network 192.168.20.0
+network 192.168.30.0
+passive-interface f0/0
+
+ripv2 in gateway
+________________
+
+
+
+NAT in gateway router
+______________________
+internal add: 192.168.10.0/24
+external address: 15.1.1.128/30
+internal adress=> external address
+
+access-list 1 permit 192.1687.10.0 0.0.255
+ip nat pool BUET-POOL 15.1.1.128 15.1.1.131 netmask 255.255.255.252
+ip nat inside source list 1 pool BUET-POOL overload
+ 
+int s2/0
+ip nat inside
+exit
+
+int s3/0
+ip nat inside
+exit
+
+int f0/0
+ip nat outside
+exit
+
+#show ip nat translations
+ 
+Acl in cse
+___________
+ip access-list extended CSE-ACL
+permit tcp host 192.168.10.2 host 15.1.1.2 eq www
+permit tcp host 192.168.10.3 host 15.1.1.3 eq ftp
+permit icmp 192.168.10.0 0.0.0.255 192.168.20.0 0.0.0.255
+deny icmp 192.168.10.0 0.0.0.255 192.168.30.0 0.0.0.255
+int f0/0
+ip access-group CSE-ACL in
